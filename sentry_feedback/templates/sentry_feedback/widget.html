@@ -1,0 +1,680 @@
+{% load static %}
+{% if sentry_feedback_dsn %}
+<style>
+/* Sentry Feedback Widget — sf- prefix to avoid collisions */
+.sf-btn {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 40;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-primary-600, #6366f1);
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+}
+.sf-btn:hover {
+    transform: scale(1.08);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+}
+.sf-btn:active { transform: scale(0.95); }
+.sf-btn.sf-hidden { opacity: 0; pointer-events: none; }
+
+.sf-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 44;
+    background: rgba(0,0,0,0.3);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+}
+.sf-backdrop.sf-open {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.sf-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 45;
+    width: 400px;
+    max-width: 100vw;
+    transform: translateX(100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+    background: #fff;
+    border-left: 1px solid #e5e7eb;
+    box-shadow: -4px 0 24px rgba(0,0,0,0.08);
+}
+.sf-panel.sf-open { transform: translateX(0); }
+
+.sf-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid #e5e7eb;
+    flex-shrink: 0;
+}
+.sf-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #111827;
+}
+.sf-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 6px;
+    color: #6b7280;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.sf-close:hover { background: #f3f4f6; color: #111827; }
+
+.sf-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+}
+
+.sf-field { margin-bottom: 16px; }
+.sf-field label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: #374151;
+    margin-bottom: 6px;
+}
+.sf-field input,
+.sf-field textarea {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    color: #111827;
+    background: #fff;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    box-sizing: border-box;
+}
+.sf-field input:focus,
+.sf-field textarea:focus {
+    outline: none;
+    border-color: var(--color-primary-500, #6366f1);
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
+}
+.sf-field input[readonly] {
+    background: #f9fafb;
+    color: #6b7280;
+    cursor: default;
+}
+.sf-field textarea { resize: vertical; min-height: 120px; }
+.sf-field .sf-error {
+    color: #ef4444;
+    font-size: 12px;
+    margin-top: 4px;
+    display: none;
+}
+
+.sf-screenshot-section {
+    margin-bottom: 16px;
+}
+.sf-screenshot-section label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: #374151;
+    margin-bottom: 8px;
+}
+.sf-screenshot-actions {
+    display: flex;
+    gap: 8px;
+}
+.sf-screenshot-actions button {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #fff;
+    color: #374151;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: background 0.15s, border-color 0.15s;
+}
+.sf-screenshot-actions button:hover {
+    background: #f3f4f6;
+    border-color: #9ca3af;
+}
+.sf-screenshot-actions button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.sf-preview {
+    margin-top: 12px;
+    position: relative;
+    display: none;
+}
+.sf-preview.sf-has-image { display: block; }
+.sf-preview img {
+    width: 100%;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+    max-height: 200px;
+    object-fit: cover;
+}
+.sf-preview-remove {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(0,0,0,0.6);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    line-height: 1;
+}
+.sf-preview-remove:hover { background: rgba(0,0,0,0.8); }
+
+.sf-footer {
+    padding: 16px 20px;
+    border-top: 1px solid #e5e7eb;
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+.sf-footer button {
+    flex: 1;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+.sf-cancel {
+    background: #fff;
+    border: 1px solid #d1d5db;
+    color: #374151;
+}
+.sf-cancel:hover { background: #f3f4f6; }
+.sf-submit {
+    background: var(--color-primary-600, #6366f1);
+    border: none;
+    color: #fff;
+}
+.sf-submit:hover { opacity: 0.9; }
+.sf-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.sf-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: sf-spin 0.6s linear infinite;
+}
+@keyframes sf-spin { to { transform: rotate(360deg); } }
+
+.sf-toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 50;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    transform: translateY(20px);
+    opacity: 0;
+    transition: transform 0.3s, opacity 0.3s;
+    pointer-events: none;
+}
+.sf-toast.sf-toast-show {
+    transform: translateY(0);
+    opacity: 1;
+}
+.sf-toast-success { background: #059669; }
+.sf-toast-error { background: #dc2626; }
+
+/* ── Dark mode ── */
+.dark .sf-panel {
+    background: #1a1a2e;
+    border-left-color: #2d2d44;
+}
+.dark .sf-header { border-bottom-color: #2d2d44; }
+.dark .sf-header h3 { color: #e5e7eb; }
+.dark .sf-close { color: #9ca3af; }
+.dark .sf-close:hover { background: #2d2d44; color: #e5e7eb; }
+.dark .sf-field label { color: #d1d5db; }
+.dark .sf-field input,
+.dark .sf-field textarea {
+    background: #111827;
+    border-color: #374151;
+    color: #e5e7eb;
+}
+.dark .sf-field input:focus,
+.dark .sf-field textarea:focus {
+    border-color: var(--color-primary-400, #818cf8);
+    box-shadow: 0 0 0 3px rgba(129,140,248,0.15);
+}
+.dark .sf-field input[readonly] {
+    background: #1f2937;
+    color: #9ca3af;
+}
+.dark .sf-screenshot-actions button {
+    background: #111827;
+    border-color: #374151;
+    color: #d1d5db;
+}
+.dark .sf-screenshot-actions button:hover {
+    background: #1f2937;
+    border-color: #4b5563;
+}
+.dark .sf-preview img { border-color: #374151; }
+.dark .sf-footer { border-top-color: #2d2d44; }
+.dark .sf-cancel {
+    background: #111827;
+    border-color: #374151;
+    color: #d1d5db;
+}
+.dark .sf-cancel:hover { background: #1f2937; }
+
+/* ── Responsive ── */
+@media (max-width: 640px) {
+    .sf-panel { width: 100vw; }
+}
+</style>
+
+<!-- Floating button -->
+<button class="sf-btn" id="sf-trigger" type="button" title="Send Feedback">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        <line x1="9" y1="9" x2="15" y2="9"/>
+        <line x1="12" y1="9" x2="12" y2="13"/>
+    </svg>
+</button>
+
+<!-- Backdrop -->
+<div class="sf-backdrop" id="sf-backdrop"></div>
+
+<!-- Panel -->
+<div class="sf-panel" id="sf-panel">
+    <div class="sf-header">
+        <h3>Report an Issue</h3>
+        <button class="sf-close" id="sf-close-btn" type="button">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+        </button>
+    </div>
+
+    <div class="sf-body">
+        <div class="sf-field">
+            <label>Name</label>
+            <input type="text" id="sf-name" value="{{ sentry_feedback_user_name }}" readonly>
+        </div>
+        <div class="sf-field">
+            <label>Email</label>
+            <input type="email" id="sf-email" value="{{ sentry_feedback_user_email }}" readonly>
+        </div>
+        <div class="sf-field">
+            <label>Description <span style="color:#ef4444">*</span></label>
+            <textarea id="sf-message" placeholder="What happened? What did you expect?"></textarea>
+            <div class="sf-error" id="sf-msg-error">Please enter at least 10 characters.</div>
+        </div>
+
+        <div class="sf-screenshot-section">
+            <label>Screenshot (optional)</label>
+            <div class="sf-screenshot-actions">
+                <button type="button" id="sf-capture-btn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                        <circle cx="12" cy="13" r="4"/>
+                    </svg>
+                    Capture page
+                </button>
+                <button type="button" id="sf-attach-btn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                    </svg>
+                    Attach file
+                </button>
+            </div>
+            <input type="file" id="sf-file-input" accept="image/*" style="display:none">
+            <div class="sf-preview" id="sf-preview">
+                <img id="sf-preview-img" src="" alt="Screenshot preview">
+                <button class="sf-preview-remove" id="sf-preview-remove" type="button">&times;</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="sf-footer">
+        <button class="sf-cancel" id="sf-cancel-btn" type="button">Cancel</button>
+        <button class="sf-submit" id="sf-submit-btn" type="button">
+            <span id="sf-submit-text">Send Feedback</span>
+            <div class="sf-spinner" id="sf-submit-spinner" style="display:none"></div>
+        </button>
+    </div>
+</div>
+
+<!-- Toast -->
+<div class="sf-toast" id="sf-toast"></div>
+
+<script>
+(function() {
+    'use strict';
+
+    const DSN = '{{ sentry_feedback_dsn|escapejs }}';
+    if (!DSN) return;
+
+    // ── Elements ──
+    const trigger = document.getElementById('sf-trigger');
+    const backdrop = document.getElementById('sf-backdrop');
+    const panel = document.getElementById('sf-panel');
+    const closeBtn = document.getElementById('sf-close-btn');
+    const cancelBtn = document.getElementById('sf-cancel-btn');
+    const submitBtn = document.getElementById('sf-submit-btn');
+    const submitText = document.getElementById('sf-submit-text');
+    const submitSpinner = document.getElementById('sf-submit-spinner');
+    const messageInput = document.getElementById('sf-message');
+    const msgError = document.getElementById('sf-msg-error');
+    const captureBtn = document.getElementById('sf-capture-btn');
+    const attachBtn = document.getElementById('sf-attach-btn');
+    const fileInput = document.getElementById('sf-file-input');
+    const preview = document.getElementById('sf-preview');
+    const previewImg = document.getElementById('sf-preview-img');
+    const previewRemove = document.getElementById('sf-preview-remove');
+    const toast = document.getElementById('sf-toast');
+
+    let screenshotBlob = null;
+    let previewUrl = null;
+
+    // ── Panel open/close ──
+    function openPanel() {
+        panel.classList.add('sf-open');
+        backdrop.classList.add('sf-open');
+        trigger.classList.add('sf-hidden');
+        messageInput.focus();
+    }
+
+    function closePanel() {
+        panel.classList.remove('sf-open');
+        backdrop.classList.remove('sf-open');
+        trigger.classList.remove('sf-hidden');
+    }
+
+    function resetForm() {
+        messageInput.value = '';
+        msgError.style.display = 'none';
+        removeScreenshot();
+    }
+
+    trigger.addEventListener('click', openPanel);
+    closeBtn.addEventListener('click', closePanel);
+    cancelBtn.addEventListener('click', closePanel);
+    backdrop.addEventListener('click', closePanel);
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && panel.classList.contains('sf-open')) closePanel();
+    });
+
+    // ── Screenshot ──
+    function removeScreenshot() {
+        screenshotBlob = null;
+        if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
+        previewImg.src = '';
+        preview.classList.remove('sf-has-image');
+        fileInput.value = '';
+    }
+
+    function setScreenshot(blob) {
+        screenshotBlob = blob;
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        previewUrl = URL.createObjectURL(blob);
+        previewImg.src = previewUrl;
+        preview.classList.add('sf-has-image');
+    }
+
+    previewRemove.addEventListener('click', removeScreenshot);
+
+    // Screenshot via html2canvas — oklch colors replaced on live DOM before clone
+    var captureBtnIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Capture page';
+
+    // Lazy-load html2canvas (patched to handle oklch/oklab) from local static file
+    function loadHtml2Canvas() {
+        if (window.html2canvas) return Promise.resolve();
+        return new Promise(function(resolve, reject) {
+            var s = document.createElement('script');
+            s.src = '{% static "sentry_feedback/html2canvas.min.js" %}';
+            s.onload = resolve;
+            s.onerror = function() { reject(new Error('Failed to load html2canvas')); };
+            document.head.appendChild(s);
+        });
+    }
+
+
+    captureBtn.addEventListener('click', async function() {
+        captureBtn.disabled = true;
+        captureBtn.innerHTML = '<div class="sf-spinner" style="border-color:rgba(0,0,0,0.2);border-top-color:#374151;width:14px;height:14px;border-width:2px"></div> Capturing...';
+
+        try {
+            await loadHtml2Canvas();
+
+            // Hide widget elements for clean capture
+            panel.style.display = 'none';
+            backdrop.style.display = 'none';
+            trigger.style.display = 'none';
+
+            await new Promise(function(r) { requestAnimationFrame(function() { requestAnimationFrame(r); }); });
+
+            var canvas = await window.html2canvas(document.body, {
+                scale: 1,
+                useCORS: true,
+                logging: false,
+                width: window.innerWidth,
+                height: window.innerHeight,
+                windowWidth: window.innerWidth,
+                windowHeight: window.innerHeight,
+            });
+
+            var blob = await new Promise(function(r) { canvas.toBlob(r, 'image/jpeg', 0.80); });
+            setScreenshot(blob);
+            showToast('Screenshot captured', 'success', 2000);
+        } catch (err) {
+            console.error('Screenshot capture failed:', err);
+            showToast('Screenshot failed — use Attach file instead', 'error', 4000);
+        } finally {
+            panel.style.display = '';
+            backdrop.style.display = '';
+            trigger.style.display = '';
+            captureBtn.disabled = false;
+            captureBtn.innerHTML = captureBtnIcon;
+        }
+    });
+
+    // File attach
+    attachBtn.addEventListener('click', function() { fileInput.click(); });
+    fileInput.addEventListener('change', async function() {
+        var file = fileInput.files[0];
+        if (!file) return;
+        if (!file.type.startsWith('image/')) {
+            showToast('Please select an image file', 'error', 3000);
+            return;
+        }
+        if (file.size > 5 * 1024 * 1024) {
+            showToast('Image must be under 5 MB', 'error', 3000);
+            return;
+        }
+        setScreenshot(file);
+    });
+
+    // ── Sentry Envelope ──
+    function parseDSN(dsn) {
+        var url = new URL(dsn);
+        return {
+            publicKey: url.username,
+            projectId: url.pathname.slice(1),
+            host: url.host,
+        };
+    }
+
+    function generateUUID() {
+        var d = Date.now(), d2 = (performance && performance.now && (performance.now() * 1000)) || 0;
+        return 'xxxxxxxxxxxx4xxxyxxxxxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = Math.random() * 16;
+            if (d > 0) { r = (d + r) % 16 | 0; d = Math.floor(d / 16); }
+            else { r = (d2 + r) % 16 | 0; d2 = Math.floor(d2 / 16); }
+            return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        });
+    }
+
+    async function sendToSentry(message, name, email, blob) {
+        var parsed = parseDSN(DSN);
+        var eventId = generateUUID();
+        var timestamp = new Date().toISOString();
+
+        var envelopeHeader = JSON.stringify({
+            event_id: eventId,
+            sent_at: timestamp,
+            dsn: DSN,
+        });
+        var itemHeader = JSON.stringify({ type: 'feedback' });
+        var payload = JSON.stringify({
+            event_id: eventId,
+            timestamp: timestamp,
+            platform: 'javascript',
+            level: 'info',
+            contexts: {
+                feedback: {
+                    message: message,
+                    contact_email: email,
+                    name: name,
+                    url: window.location.href,
+                },
+            },
+            request: { url: window.location.href },
+            tags: { source: 'django_unfold_feedback' },
+        });
+
+        var body;
+        var contentType;
+
+        if (blob) {
+            var bytes = new Uint8Array(await blob.arrayBuffer());
+            var attachHeader = JSON.stringify({
+                type: 'attachment',
+                length: bytes.byteLength,
+                filename: 'screenshot.jpg',
+                content_type: blob.type || 'image/jpeg',
+                attachment_type: 'event.attachment',
+            });
+            var textPart = new TextEncoder().encode(
+                [envelopeHeader, itemHeader, payload, attachHeader].join('\n') + '\n'
+            );
+            body = new Uint8Array(textPart.length + bytes.length);
+            body.set(textPart);
+            body.set(bytes, textPart.length);
+            contentType = 'application/x-sentry-envelope';
+        } else {
+            body = [envelopeHeader, itemHeader, payload].join('\n');
+            contentType = 'text/plain';
+        }
+
+        var url = 'https://' + parsed.host + '/api/' + parsed.projectId + '/envelope/?sentry_key=' + parsed.publicKey + '&sentry_version=7';
+        var resp = await fetch(url, {
+            method: 'POST',
+            body: body,
+            headers: { 'Content-Type': contentType },
+        });
+
+        if (!resp.ok) throw new Error('Sentry responded ' + resp.status);
+        return eventId;
+    }
+
+    // ── Submit ──
+    submitBtn.addEventListener('click', async function() {
+        var message = messageInput.value.trim();
+        if (message.length < 10) {
+            msgError.style.display = 'block';
+            messageInput.focus();
+            return;
+        }
+        msgError.style.display = 'none';
+
+        var name = document.getElementById('sf-name').value;
+        var email = document.getElementById('sf-email').value;
+
+        submitBtn.disabled = true;
+        submitText.style.display = 'none';
+        submitSpinner.style.display = '';
+
+        try {
+            await sendToSentry(message, name, email, screenshotBlob);
+            showToast('Feedback sent! Thank you.', 'success', 4000);
+            resetForm();
+            closePanel();
+        } catch (err) {
+            console.error('Feedback submission failed:', err);
+            showToast('Failed to send feedback. Please try again.', 'error', 6000);
+        } finally {
+            submitBtn.disabled = false;
+            submitText.style.display = '';
+            submitSpinner.style.display = 'none';
+        }
+    });
+
+    // Hide error on typing
+    messageInput.addEventListener('input', function() {
+        if (messageInput.value.trim().length >= 10) msgError.style.display = 'none';
+    });
+
+    // ── Toast ──
+    var toastTimer = null;
+    function showToast(msg, type, duration) {
+        if (toastTimer) clearTimeout(toastTimer);
+        toast.textContent = msg;
+        toast.className = 'sf-toast sf-toast-' + type;
+        requestAnimationFrame(function() {
+            toast.classList.add('sf-toast-show');
+        });
+        toastTimer = setTimeout(function() {
+            toast.classList.remove('sf-toast-show');
+        }, duration || 4000);
+    }
+})();
+</script>
+{% endif %}
